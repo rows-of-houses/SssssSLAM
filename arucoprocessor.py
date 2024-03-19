@@ -14,10 +14,14 @@ class ArucoProcessor:
         self.dist = np.zeros((1, 5))
 
         self.marker_size = 0.144
-        self.marker_points = np.array([[-self.marker_size / 2,  self.marker_size / 2, 0],
-                                       [ self.marker_size / 2,  self.marker_size / 2, 0],
+        # self.marker_points = np.array([[-self.marker_size / 2,  self.marker_size / 2, 0],
+        #                                [ self.marker_size / 2,  self.marker_size / 2, 0],
+        #                                [ self.marker_size / 2, -self.marker_size / 2, 0],
+        #                                [-self.marker_size / 2, -self.marker_size / 2, 0]])
+        self.marker_points = np.array([[-self.marker_size / 2, -self.marker_size / 2, 0],
                                        [ self.marker_size / 2, -self.marker_size / 2, 0],
-                                       [-self.marker_size / 2, -self.marker_size / 2, 0]])
+                                       [ self.marker_size / 2,  self.marker_size / 2, 0],
+                                       [-self.marker_size / 2,  self.marker_size / 2, 0]])
 
         self.curr_aruco_pose = np.eye(4)
         self.prev_aruco_pose = np.eye(4)
@@ -26,17 +30,49 @@ class ArucoProcessor:
         self.corners = None
 
         self.iteration = 0
+
+        self.reliable_tracking = False
+        self.prev_speed = 100
+
+        self.prev_reliable_pose = np.eye(4)
+        self.filtered_aruco_pose = np.eye(4)
     
-    def filter_pose(self, pose):
-        speed = np.linalg.norm(pose[:3, 3] - self.prev_aruco_pose[:3, 3]) / 0.033
-        # print(speed)
-        if speed > 1.2: # real linear speed in m/s!
-            filtered_pose = self.prev_aruco_pose @ \
-                            self.invert_se3(self.prev_prev_aruco_pose) @ \
-                            self.prev_aruco_pose  # extrapolation
-            return filtered_pose
+    # def filter_pose(self, pose):
+    #     speed = np.linalg.norm(pose[:3, 3] - self.prev_aruco_pose[:3, 3]) / 0.033
+    #     # prev_speed = np.linalg.norm(self.prev_aruco_pose[:3, 3] - self.prev_prev_aruco_pose[:3, 3]) / 0.033
+
+    #     print(self.prev_speed, speed)
+
+    #     if not self.reliable_tracking and speed < 1 and self.prev_speed < 1:
+    #         self.reliable_tracking = True
+    #         print('Reliable')
+        
+    #     self.prev_speed = speed
+
+    #     if self.reliable_tracking and speed > 1: # real linear speed in m/s!
+    #         filtered_pose = self.prev_aruco_pose @ \
+    #                         self.invert_se3(self.prev_prev_aruco_pose) @ \
+    #                         self.prev_aruco_pose  # extrapolation
+    #         return filtered_pose
+        
+    #     else:
+    #         return pose
+        
+    def filter_aruco_pose(self):
+        disp = np.linalg.norm(self.curr_aruco_pose[:3, 3] - self.prev_aruco_pose[:3, 3])
+        # prev_disp = np.linalg.norm(self.prev_aruco_pose[:3, 3] - self.prev_prev_aruco_pose[:3, 3])
+
+        if not self.reliable_tracking and disp < 0.6:
+            self.reliable_tracking = True
+            self.prev_reliable_pose = self.prev_aruco_pose
+            print('Reliable')
+        if not self.reliable_tracking:
+            return None
+        if disp < 0.6 and self.reliable_tracking: # meters
+            self.prev_aruco_pose = self.curr_aruco_pose
+            return self.curr_aruco_pose
         else:
-            return pose
+            return None
     
     def process_frame(self, frame):
         
@@ -56,34 +92,39 @@ class ArucoProcessor:
                 aruco_pose[:3, :3] = aruco_rot_matrix
                 aruco_pose[:3, 3:] = np.array(tvec)
 
-                if self.iteration > 6:
-                    aruco_pose = self.filter_pose(aruco_pose)
-
                 self.prev_prev_aruco_pose = self.prev_aruco_pose
                 self.prev_aruco_pose = self.curr_aruco_pose
                 self.curr_aruco_pose = aruco_pose
 
-                # basically, it is just inverse of SE3
-                pose_wrt_aruco = self.invert_se3(self.curr_aruco_pose)
+                self.filtered_aruco_pose = self.filter_aruco_pose()
+                # self.curr_aruco_pose = self.filter_pose(aruco_pose)
 
-                pose_wrt_aruco = np.array([[1,  0,  0, 0],
-                                           [0, -1,  0, 0],
-                                           [0,  0, -1, 0],
-                                           [0,  0,  0, 1]]) @ pose_wrt_aruco # need to define, if it is needed or not
+                # basically, it is just inverse of SE3
+                # pose_wrt_aruco = self.invert_se3(self.curr_aruco_pose)
+                # pose_wrt_aruco = self.invert_se3(self.curr_aruco_pose)
+
+                # pose_wrt_aruco = np.array([[1,  0,  0, 0],
+                #                            [0, -1,  0, 0],
+                #                            [0,  0, -1, 0],
+                #                            [0,  0,  0, 1]]) @ pose_wrt_aruco # need to define, if it is needed or not
                 
-                self.pose_wrt_aruco = pose_wrt_aruco
+                # self.pose_wrt_aruco = pose_wrt_aruco
                 self.iteration += 1
-            return True
+
+                if self.filtered_aruco_pose is not None:
+                    return True
         return False
     
     def get_corners(self):
         return self.corners[0][0]
     
     def get_pose_wrt_aruco(self):
-        return self.pose_wrt_aruco
+        if self.filtered_aruco_pose is None:
+            return None
+        return self.invert_se3(self.filtered_aruco_pose)
     
     def get_aruco_pose(self):
-        return self.curr_aruco_pose
+        return self.filtered_aruco_pose
     
     def invert_se3(self, se3):
         inv = np.eye(4, dtype=float)
