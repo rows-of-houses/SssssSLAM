@@ -1,7 +1,30 @@
 import numpy as np
 import plotly.graph_objects as go
+import cv2 as cv
 
-def plot_data(poses, landmarks, marker_points, arrows_length=0.05):
+
+def video_to_nparray(path):
+    cap = cv.VideoCapture(path)
+
+    frameCount = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
+    frameWidth = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
+    frameHeight = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
+
+    buf = np.empty((frameCount, frameHeight, frameWidth, 3), np.dtype('uint8'))
+
+    fc = 0
+    ret = True
+
+    while (fc < frameCount  and ret):
+        ret, buf[fc] = cap.read()
+        fc += 1
+
+    cap.release()
+
+    return buf
+
+
+def plot_data(poses, landmarks, marker_points, arrows_length=0.05, window=3):
 
     positions = []
     orientations = []
@@ -24,8 +47,6 @@ def plot_data(poses, landmarks, marker_points, arrows_length=0.05):
         x_ends.append(orientations[i] @ x_unit)
         y_ends.append(orientations[i] @ y_unit)
         z_ends.append(orientations[i] @ z_unit)
-
-    layout = go.Layout(scene=dict(aspectmode='data'))
 
     arrows = []
 
@@ -63,7 +84,20 @@ def plot_data(poses, landmarks, marker_points, arrows_length=0.05):
                                        z=marker_points.T[2],
                                        mode='markers',
                                        marker=dict(color='orange', size=3))] + \
-                        arrows,
-                        layout=layout)
+                          arrows)
+    
+    width = np.max(positions, axis=1) - np.min(positions, axis=1)
+    range_ = np.vstack((np.mean(positions, axis=1) - window * width, np.mean(positions, axis=1) + window * width))
 
+    range_ = range_.T
+
+    fig.update_layout(
+        scene = dict(
+            xaxis = dict(nticks=4, range=range_[0]),
+            yaxis = dict(nticks=4, range=range_[1]),
+            zaxis = dict(nticks=4, range=range_[2]),
+            aspectmode='data'))
+    
     fig.show()
+
+    return fig
