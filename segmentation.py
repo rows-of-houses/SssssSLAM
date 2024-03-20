@@ -25,7 +25,6 @@ class FeatureExtractor:
         self.sift = cv2.SIFT_create()
         self.orb = cv2.ORB_create()
         self.segmentation_model = deeplabv3_resnet101(pretrained=True).eval()
-
     def preprocess_image(self, image):
         """
         Preprocess the image for segmentation model.
@@ -50,12 +49,12 @@ class FeatureExtractor:
         output_predictions = output.argmax(0)
 
         mask = torch.nn.functional.interpolate(output_predictions.unsqueeze(0).unsqueeze(0).float(), size=image.shape[:2], mode='nearest').byte().squeeze().cpu().numpy()
-        stable_classes = [5, 10, 15]  # Example class IDs for tables, chairs, walls
+        stable_classes = [15]  # class ID for human
         stable_mask = np.isin(mask, stable_classes).astype(np.uint8)
 
         return stable_mask
 
-    def extract_features(self, image, method='SIFT'):
+    def extract_features(self, image, method='ORB'):
         if method.upper() == 'SIFT':
             keypoints, descriptors = self.sift.detectAndCompute(image, None)
         elif method.upper() == 'ORB':
@@ -66,12 +65,20 @@ class FeatureExtractor:
         return keypoints, descriptors
 
     def visualize_features(self, image, keypoints):
-        return cv2.drawKeypoints(image, keypoints, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        return cv2.drawKeypoints(image, keypoints, None)
+    
+    def extract_stable_features(self, image, method='ORB'):
+        mask = self.segment_image(image) # human mask 
+        inv_mask = np.ones(mask.shape) - mask 
+        inv_mask = inv_mask.astype('uint8') # background without human
+        stable_regions = cv2.bitwise_and(image, image, mask=inv_mask)
+        keypoints_stable, descriptors_stable = self.extract_features(stable_regions, method)
 
-    def process_image(self, image, method='SIFT'):
-        # Segment the image to find "stable" objects
+        return keypoints_stable, descriptors_stable
+    
+    def process_image(self, image, method='ORB'):
         mask = self.segment_image(image)
         stable_regions = cv2.bitwise_and(image, image, mask=mask)
         keypoints_stable, descriptors_stable = self.extract_features(stable_regions, method)
-        vis_stable = self.visualize_features(image, keypoints_stable)
-        return keypoints_stable, descriptors_stable, vis_stable
+
+        return keypoints_stable, descriptors_stable
