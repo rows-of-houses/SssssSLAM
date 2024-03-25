@@ -5,6 +5,3 @@ maps
 maps_table
 .jpg
 maps_new
-aruco_test.ipynb
-calibration.ipynb
-aruco_pose_detection.ipynb
