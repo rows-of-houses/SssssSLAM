@@ -1,9 +1,0 @@
-numpy
-scipy
-mrob
-tqdm
-matplotlib
-seaborn
-opencv-python
-opencv-contrib-python
-plotly
